@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<UseWindowsForms>true</UseWindowsForms>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+	</PropertyGroup>
+	<ItemGroup>
+	  <Compile Remove="Adapters\SapGuiAdapter.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="LiteTools.Interfaces">
+			<HintPath>..\..\LiteTools\LiteTools\bin\Debug\net10.0-windows\LiteTools.Interfaces.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+</Project>
