@@ -4,6 +4,10 @@ using System.Text.Json;
 
 namespace LiteJson.Models
 {
+    // ==========================================
+    // 1. CONFIGURAÇÕES
+    // ==========================================
+
     public enum TargetEngine { WebUniversal, SapEnterprise }
 
     public class LiteJsonConfig

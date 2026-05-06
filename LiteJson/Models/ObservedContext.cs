@@ -5,7 +5,7 @@ using System.Text;
 namespace LiteJson.Models
 {
     // ==========================================
-    // 5. NOVOS MODELOS V2 (O EIXO OBSERVACIONAL)
+    // 3. O EIXO OBSERVACIONAL (A FOTOGRAFIA)
     // ==========================================
 
     /// <summary>
@@ -14,13 +14,13 @@ namespace LiteJson.Models
     /// </summary>
     public class ObservedContext
     {
-        /// <summary>A URL da página no momento da observação.</summary>
         public string Url { get; set; } = string.Empty;
-
-        /// <summary>O Título da aba do navegador (document.title). Vital para rastrear SPAs.</summary>
         public string PageTitle { get; set; } = string.Empty;
 
-        /// <summary>Lista de todos os elementos interativos relevantes encontrados na tela.</summary>
+        // Contexto de Resolução do Monitor (Ajuda a IA a calcular limites visuais)
+        public int ViewportWidth { get; set; }
+        public int ViewportHeight { get; set; }
+
         public List<VisibleElement> VisibleElements { get; set; } = new List<VisibleElement>();
     }
 

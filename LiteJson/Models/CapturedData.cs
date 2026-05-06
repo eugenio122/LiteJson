@@ -6,8 +6,9 @@ using System.Text.Json.Serialization;
 namespace LiteJson.Models
 {
     // ==========================================
-    // 2. A GAVETA SIMÉTRICA (CAPTURED DATA)
+    // 4. A GAVETA SIMÉTRICA (CAPTURED DATA)
     // ==========================================
+
     /// <summary>
     /// O Coração da Inovação: A gaveta tripla simétrica que abriga as verdades de todos os motores.
     /// </summary>

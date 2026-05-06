@@ -5,7 +5,7 @@ using System.Text;
 namespace LiteJson.Models
 {
     // ==========================================
-    // 5. NOVOS MODELOS V2 (O EIXO OBSERVACIONAL)
+    // 3. O EIXO OBSERVACIONAL (A FOTOGRAFIA)
     // ==========================================
 
     /// <summary>
@@ -25,14 +25,27 @@ namespace LiteJson.Models
         /// </summary>
         public bool IsEnabled { get; set; } = true;
 
-        // Coordenadas relativas ao Viewport do navegador para Hidratação Assíncrona
+        /// <summary>O cursor piscando estava aqui? Forte indício de digitação (Preencher).</summary>
+        public bool IsFocused { get; set; } = false;
+
+        /// <summary>Estado vital para Checkboxes, Radios e Toggles (null se não aplicável).</summary>
+        public bool? IsChecked { get; set; }
+
+        // --- Geometria Completa (O Mapa de Calor) ---
         public int CenterX { get; set; }
         public int CenterY { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
 
 
         /// <summary>
         /// A gaveta simétrica idêntica à usada nos MicroSteps (com UIA, AX_Tree e BiDi).
         /// </summary>
         public CapturedData CapturedData { get; set; } = new CapturedData();
+
+        /// <summary>
+        /// O "Ninho": Mapeia a hierarquia real do DOM. Permite o Event Bubbling Reverso no LiteAutomation.
+        /// </summary>
+        public List<VisibleElement> Children { get; set; } = new List<VisibleElement>();
     }
 }

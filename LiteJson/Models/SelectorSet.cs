@@ -5,8 +5,9 @@ using System.Text;
 namespace LiteJson.Models
 {
     // ==========================================
-    // 4. NÓS DE DADOS ESPECÍFICOS (ELEMENT DATA)
+    // 6. SEMÂNTICA E SELETORES (ESTABILIDADE)
     // ==========================================
+
     /// <summary>
     /// O "Cofre" de Seletores Estruturais (WebDriver BiDi / DOM).
     /// </summary>

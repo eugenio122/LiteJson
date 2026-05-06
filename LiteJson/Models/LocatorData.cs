@@ -5,7 +5,7 @@ using System.Text;
 namespace LiteJson.Models
 {
     // ==========================================
-    // 3. O NOVO PADRÃO "SCORED LOCATOR"
+    // 6. SEMÂNTICA E SELETORES (ESTABILIDADE)
     // ==========================================
 
     /// <summary>

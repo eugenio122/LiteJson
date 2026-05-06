@@ -26,7 +26,6 @@ namespace LiteJson.Plugin
         private IUIAutomation _automation;
         private ILiteHostContext _hostContext;
         private IEventBus _eventBus;
-        private PassiveBiDiListener _passiveListener;
         private JsonSettingsUI _settingsUI;
 
         private string _baseOutputDirectory;
@@ -63,10 +62,6 @@ namespace LiteJson.Plugin
             _eventBus.Subscribe<StepRestoredEvent>(OnStepRestored);
             _eventBus.Subscribe<StepsReorderedEvent>(OnStepsReordered);
             _eventBus.Subscribe<StepMetadataChangedEvent>(OnStepMetadataChanged);
-
-            _passiveListener = new PassiveBiDiListener();
-            _passiveListener.MicroStepDetected += OnMicroStepDetected;
-            _passiveListener.Start();
 
             StartHydrationWorker();
         }
@@ -311,27 +306,11 @@ namespace LiteJson.Plugin
         private void OnStepMetadataChanged(StepMetadataChangedEvent e) { lock (_lockObj) { var s = _scenarioSteps.FirstOrDefault(x => x.StepId == e.StepId); if (s != null) { s.IsEvidenceOnly = e.IsEvidenceOnly; if (!string.IsNullOrEmpty(e.NewName)) s.StepName = e.NewName; RecalculateIndices(); SaveJsonToDisk(GetCurrentScenarioDirectory()); } } }
         private void RecalculateIndices() { int c = 1; foreach (var s in _scenarioSteps) { if (!s.IsActive || s.IsEvidenceOnly || s.PendingConfirmation) s.StepIndex = null; else s.StepIndex = c++; } }
 
-        private void OnMicroStepDetected(MicroStepPayload m)
-        {
-            if (!LiteJsonConfig.Load().IsEnabled || !_isRecording) return;
-            lock (_lockObj)
-            {
-                var last = _scenarioSteps.LastOrDefault(s => s.IsActive && !s.PendingConfirmation);
-                if (last != null)
-                {
-                    var dual = _jsonManager.ExtractDualTreeFromElement(_automation.GetFocusedElement());
-                    m.CapturedData.UIA = dual.UIA; m.CapturedData.AX_Tree = dual.AX_Tree;
-                    last.MicroSteps.Add(m); SaveJsonToDisk(GetCurrentScenarioDirectory());
-                }
-            }
-        }
-
         public UserControl GetSettingsUI() => _settingsUI = new JsonSettingsUI(_hostContext.GetSessionMetadata("IsDarkMode") as bool? ?? false);
 
         public void Shutdown()
         {
             _workerCts?.Cancel();
-            _passiveListener?.Stop();
             _jsonManager = null;
         }
     }
