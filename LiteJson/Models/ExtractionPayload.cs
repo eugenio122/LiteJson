@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace LiteJson.Models
 {
@@ -27,7 +28,9 @@ namespace LiteJson.Models
         public bool IsHydrated { get; set; } = false;
 
         public string TriggerType { get; set; } = string.Empty;
-        public string ContextImage { get; set; } = string.Empty;
+
+        // NOVO: A trilha de tudo que o usuário fez desde o último print
+        public List<InteractionBreadcrumb> InteractionTrail { get; set; } = new List<InteractionBreadcrumb>();
 
         /// <summary>
         /// Dados do elemento central (caso o usuário tenha focado em algo antes de printar).

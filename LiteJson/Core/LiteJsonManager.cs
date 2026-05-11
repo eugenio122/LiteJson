@@ -30,9 +30,10 @@ namespace LiteJson.Core
             var center = new CapturedData();
             var context = new ObservedContext();
 
-            var uiaData = _uiaAdapter.ExtractDualTree(focused);
-            center.UIA = uiaData.UIA;
-            center.AX_Tree = uiaData.AX_Tree;
+            var uiaData = _uiaAdapter.ExtractUiaNode(focused);
+            center.UIA = uiaData;
+
+            center.AX_Tree = new EngineNode<AxTreeElementData> { ElementData = new AxTreeElementData() };
 
             IntPtr hwnd = focused != null && focused.CurrentNativeWindowHandle != 0
                 ? (IntPtr)focused.CurrentNativeWindowHandle
@@ -49,6 +50,86 @@ namespace LiteJson.Core
             }
 
             return (center, context);
+        }
+
+        public void EnsureClickTrackerInjected(IntPtr hwnd)
+        {
+            if (LiteJsonConfig.Load().Target == TargetEngine.WebUniversal)
+                _bidiAdapter.EnsureClickTrackerInjected(hwnd);
+        }
+
+        public List<InteractionBreadcrumb> RetrieveAndClearInteractionTrail(IntPtr hwnd)
+        {
+            if (LiteJsonConfig.Load().Target == TargetEngine.WebUniversal)
+                return _bidiAdapter.RetrieveAndClearInteractionTrail(hwnd);
+            return new List<InteractionBreadcrumb>();
+        }
+
+        public void HydrateTrail(List<InteractionBreadcrumb> trail, IntPtr hwnd)
+        {
+            if (trail == null || trail.Count == 0) return;
+            try
+            {
+                var config = LiteJsonConfig.Load();
+                if (config.Target == TargetEngine.WebUniversal)
+                {
+                    _bidiAdapter.HydrateTrailAxTree(trail);
+                }
+
+                IUIAutomation localWorkerAutomation = new CUIAutomation();
+                if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
+
+                var windowElement = localWorkerAutomation.ElementFromHandle(hwnd);
+                if (windowElement == null) return;
+
+                var condition = localWorkerAutomation.CreatePropertyCondition(30003, 50030); // UIA_DocumentControlTypeId
+                var docElement = windowElement.FindFirst(TreeScope.TreeScope_Descendants, condition);
+
+                int offsetX = docElement != null ? docElement.CurrentBoundingRectangle.left : windowElement.CurrentBoundingRectangle.left;
+                int offsetY = docElement != null ? docElement.CurrentBoundingRectangle.top : windowElement.CurrentBoundingRectangle.top + 87;
+
+                int hydratedCount = 0;
+
+                foreach (var step in trail)
+                {
+                    if (step.UIA == null) step.UIA = new EngineNode<UiaElementData> { ElementData = new UiaElementData() };
+
+                    // PROTEÇÃO DE IDEMPOTÊNCIA: Se este clique já foi hidratado no loop anterior, ignora!
+                    if (step.UIA.QualityFlags.Contains("SUCCESS_UIA_BREADCRUMB")) continue;
+
+                    var center = step.CenterCoordinates;
+                    if (center.X == 0 && center.Y == 0) continue;
+
+                    int screenX = offsetX + center.X;
+                    int screenY = offsetY + center.Y;
+
+                    try
+                    {
+                        var uiaEl = localWorkerAutomation.ElementFromPoint(new tagPOINT { x = screenX, y = screenY });
+                        if (uiaEl != null)
+                        {
+                            var uiaData = _uiaAdapter.ExtractUiaNode(uiaEl);
+                            step.UIA.ElementData = uiaData.ElementData;
+                            step.UIA.QualityFlags = uiaData.QualityFlags;
+                            step.UIA.QualityFlags.Add("SUCCESS_UIA_BREADCRUMB");
+                            step.UIA.QualityFlags.Add("HYDRATED_ASYNC");
+
+                            hydratedCount++;
+                        }
+                    }
+                    catch (Exception innerEx)
+                    {
+                        LiteLogger.Debug($"[HydrateTrail] ElementFromPoint falhou no clique X:{screenX} Y:{screenY}. Erro: {innerEx.Message}");
+                    }
+                }
+
+                if (hydratedCount > 0)
+                    LiteLogger.Info($"[HydrateTrail] Sucesso: {hydratedCount} NOVOS breadcrumbs hidratados retroativamente.");
+            }
+            catch (Exception ex)
+            {
+                LiteLogger.Error("[HydrateTrail] Erro crítico na hidratação da trilha.", ex);
+            }
         }
 
         public void HydrateContext(ObservedContext ctx, IntPtr hwnd)
@@ -70,13 +151,13 @@ namespace LiteJson.Core
 
                 int hydratedCount = 0;
 
-                // Processa a árvore chamando o método recursivo para as raízes
                 foreach (var el in ctx.VisibleElements)
                 {
                     HydrateRecursive(el, offsetX, offsetY, localWorkerAutomation, ref hydratedCount, false);
                 }
 
-                LiteLogger.Info($"[HydrateContext] Sucesso: {hydratedCount} elementos totais hidratados com UIA nativo.");
+                if (hydratedCount > 0)
+                    LiteLogger.Info($"[HydrateContext] Sucesso: {hydratedCount} elementos totais hidratados com UIA nativo.");
             }
             catch (Exception ex)
             {
@@ -84,7 +165,6 @@ namespace LiteJson.Core
             }
         }
 
-        // Método recursivo responsável por descer pela árvore do DOM espelhada
         private void HydrateRecursive(VisibleElement el, int offsetX, int offsetY, IUIAutomation localWorkerAutomation, ref int hydratedCount, bool skipUia)
         {
             bool isAlreadyHydrated = el.CapturedData.UIA != null && !string.IsNullOrEmpty(el.CapturedData.UIA.ElementData.BoundingRectangle);
@@ -100,26 +180,14 @@ namespace LiteJson.Core
                     var uiaEl = localWorkerAutomation.ElementFromPoint(new tagPOINT { x = screenX, y = screenY });
                     if (uiaEl != null)
                     {
-                        var data = _uiaAdapter.ExtractDualTree(uiaEl);
+                        var uiaData = _uiaAdapter.ExtractUiaNode(uiaEl);
 
-                        el.CapturedData.UIA.ElementData = data.UIA.ElementData;
-                        el.CapturedData.UIA.QualityFlags = data.UIA.QualityFlags;
+                        el.CapturedData.UIA.ElementData = uiaData.ElementData;
+                        el.CapturedData.UIA.QualityFlags = uiaData.QualityFlags;
                         el.CapturedData.UIA.QualityFlags.Add("SUCCESS_UIA_CONTEXT");
                         el.CapturedData.UIA.QualityFlags.Add("HYDRATED_ASYNC");
 
-                        el.CapturedData.AX_Tree.ElementData = data.AX_Tree.ElementData;
-                        el.CapturedData.AX_Tree.QualityFlags = data.AX_Tree.QualityFlags;
-                        el.CapturedData.AX_Tree.QualityFlags.Add("SUCCESS_AX_TREE_CONTEXT");
-                        el.CapturedData.AX_Tree.QualityFlags.Add("HYDRATED_ASYNC");
-
                         hydratedCount++;
-
-                        // Otimização: Se o Pai forneceu o "AccessibleName" ou "AutomationId", consideramos a identidade dele "Sólida"
-                        if (el.CapturedData.UIA.QualityFlags.Contains("A11Y_NAME_PRESENT") ||
-                            el.CapturedData.UIA.QualityFlags.Contains("A11Y_AUTOMATION_ID_PRESENT"))
-                        {
-                            isSolid = true;
-                        }
                     }
                 }
                 catch (Exception innerEx)
@@ -128,13 +196,31 @@ namespace LiteJson.Core
                 }
             }
 
-            // Desce para os filhos da árvore
+            bool hasUiaA11y = el.CapturedData.UIA != null && (
+                                   el.CapturedData.UIA.QualityFlags.Contains("A11Y_NAME_PRESENT") ||
+                                   el.CapturedData.UIA.QualityFlags.Contains("A11Y_AUTOMATION_ID_PRESENT"));
+
+            bool hasChromeA11y = el.CapturedData.AX_Tree != null && (
+                                   el.CapturedData.AX_Tree.QualityFlags.Contains("A11Y_NAME_PRESENT"));
+
+            bool hasStrongBiDiLocator = el.CapturedData.WebDriver_BiDi != null && (
+                                        el.CapturedData.WebDriver_BiDi.QualityFlags.Contains("LOCATOR_P0_GOLDEN") ||
+                                        el.CapturedData.WebDriver_BiDi.QualityFlags.Contains("LOCATOR_P1_SEMANTIC"));
+
+            bool isStrongNativeTag = el.ElementType == "button" || el.ElementType == "a" ||
+                                     el.ElementType == "input" || el.ElementType == "select" ||
+                                     el.ElementType == "textarea";
+
+            if (hasUiaA11y || hasChromeA11y || isStrongNativeTag || hasStrongBiDiLocator)
+            {
+                el.IsSemanticAnchor = true;
+                isSolid = true;
+            }
+
             if (el.Children != null && el.Children.Count > 0)
             {
                 foreach (var child in el.Children)
                 {
-                    // Regra de Otimização: Se o Pai é Sólido e o filho é puramente um auxiliar visual 
-                    // (ex: span de contador, ícone svg, bold text), poupamos chamadas ao COM do Windows.
                     bool shouldSkipChild = (isSolid || skipUia) && IsVisualChild(child.ElementType);
                     HydrateRecursive(child, offsetX, offsetY, localWorkerAutomation, ref hydratedCount, shouldSkipChild);
                 }

@@ -6,6 +6,7 @@
 		<UseWindowsForms>true</UseWindowsForms>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
 	</PropertyGroup>
 	<ItemGroup>
 	  <Compile Remove="Adapters\SapGuiAdapter.cs" />

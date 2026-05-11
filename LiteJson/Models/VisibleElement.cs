@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace LiteJson.Models
 {
@@ -14,6 +15,12 @@ namespace LiteJson.Models
     /// </summary>
     public class VisibleElement
     {
+        /// <summary>
+        /// ID único de rastreabilidade deste nó no snapshot (Ex: "web-node-42").
+        /// Vital para relatórios de BDD, logs de execução e renderização visual.
+        /// </summary>
+        public string NodeId { get; set; } = string.Empty;
+
         /// <summary>
         /// Classificação semântica do elemento. 
         /// Ex: "input", "button", "select", "checkbox", "text" (para mensagens de erro/sucesso).
@@ -47,5 +54,15 @@ namespace LiteJson.Models
         /// O "Ninho": Mapeia a hierarquia real do DOM. Permite o Event Bubbling Reverso no LiteAutomation.
         /// </summary>
         public List<VisibleElement> Children { get; set; } = new List<VisibleElement>();
+
+        /// <summary>
+        /// Para marcar o dono da intenção
+        /// </summary>
+        public bool IsSemanticAnchor { get; set; }
+
+        /// <summary>
+        /// para navegação interna sem quebrar a serialização JSON (evita loops infinitos)
+        /// </summary>
+        [JsonIgnore] public VisibleElement Parent { get; set; }
     }
 }

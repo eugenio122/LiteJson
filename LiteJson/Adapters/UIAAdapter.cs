@@ -7,17 +7,16 @@ namespace LiteJson.Adapters
 {
     public class UIAAdapter
     {
-        public (EngineNode<UiaElementData> UIA, EngineNode<AxTreeElementData> AX_Tree) ExtractDualTree(IUIAutomationElement element)
+        // Renomeado e focado exclusivamente em extrair a gaveta UIA
+        public EngineNode<UiaElementData> ExtractUiaNode(IUIAutomationElement element)
         {
             var uiaNode = new EngineNode<UiaElementData> { ElementData = new UiaElementData() };
-            var axNode = new EngineNode<AxTreeElementData> { ElementData = new AxTreeElementData() };
 
             if (element == null)
             {
-                LiteLogger.Debug("[UIAAdapter.ExtractDualTree] IUIAutomationElement fornecido é nulo.");
+                LiteLogger.Debug("[UIAAdapter.ExtractUiaNode] IUIAutomationElement fornecido é nulo.");
                 uiaNode.QualityFlags.Add("UIA_ELEMENT_NOT_FOUND");
-                axNode.QualityFlags.Add("AX_TREE_ELEMENT_NOT_FOUND");
-                return (uiaNode, axNode);
+                return uiaNode;
             }
 
             try
@@ -31,54 +30,46 @@ namespace LiteJson.Adapters
                 string bounds = $"{rect.left},{rect.top},{rect.right - rect.left},{rect.bottom - rect.top}";
 
                 var semUIA = uiaNode.ElementData.Semantic;
-                var semAX = axNode.ElementData.Semantic;
 
                 if (!string.IsNullOrEmpty(autoId)) semUIA.AutomationId = new LocatorData(autoId, 100);
 
                 if (!string.IsNullOrEmpty(name))
                 {
                     semUIA.AccessibleName = new LocatorData(name, 85);
-                    semAX.AccessibleName = new LocatorData(name, 85);
                 }
 
                 semUIA.Role = new LocatorData(role, 80);
-                semAX.Role = new LocatorData(role, 80);
 
                 if (!string.IsNullOrEmpty(help))
                 {
                     semUIA.HelpText = new LocatorData(help, 70);
-                    semAX.HelpText = new LocatorData(help, 70);
                 }
 
                 uiaNode.ElementData.UiaClassName = element.CurrentClassName ?? string.Empty;
                 uiaNode.ElementData.BoundingRectangle = bounds;
-                axNode.ElementData.BoundingRectangle = bounds;
 
                 if (!string.IsNullOrEmpty(autoId))
                 {
                     uiaNode.QualityFlags.Add("A11Y_AUTOMATION_ID_PRESENT");
-                    axNode.QualityFlags.Add("A11Y_AUTOMATION_ID_PRESENT");
                 }
 
                 if (!string.IsNullOrEmpty(name))
                 {
                     uiaNode.QualityFlags.Add("A11Y_NAME_PRESENT");
-                    axNode.QualityFlags.Add("A11Y_NAME_PRESENT");
                 }
 
                 if (string.IsNullOrEmpty(autoId) && string.IsNullOrEmpty(name))
                 {
                     uiaNode.QualityFlags.Add("A11Y_GAP_WARNING");
-                    axNode.QualityFlags.Add("A11Y_GAP_WARNING");
                 }
             }
             catch (Exception ex)
             {
-                LiteLogger.Debug($"[UIAAdapter.ExtractDualTree] Exceção COM ao ler propriedades do elemento: {ex.Message}");
+                LiteLogger.Debug($"[UIAAdapter.ExtractUiaNode] Exceção COM ao ler propriedades do elemento: {ex.Message}");
                 uiaNode.QualityFlags.Add("UIA_COM_EXCEPTION");
             }
 
-            return (uiaNode, axNode);
+            return uiaNode;
         }
 
         public ObservedContext ExtractObservedContext(IUIAutomationElement rootElement)
@@ -148,16 +139,14 @@ namespace LiteJson.Adapters
                             IsEnabled = el.CurrentIsEnabled != 0
                         };
 
-                        var dualTree = ExtractDualTree(el);
+                        var uiaNode = ExtractUiaNode(el);
+                        uiaNode.QualityFlags.Add("SUCCESS_UIA_CONTEXT");
 
-                        dualTree.UIA.QualityFlags.Add("SUCCESS_UIA_CONTEXT");
-                        dualTree.AX_Tree.QualityFlags.Add("SUCCESS_AX_TREE_CONTEXT");
+                        visibleElement.CapturedData.UIA = uiaNode;
 
-                        visibleElement.CapturedData.UIA = dualTree.UIA;
-                        visibleElement.CapturedData.AX_Tree = dualTree.AX_Tree;
-
-                        // LIMPANDO O LIXO: No Desktop nativo, não existe BiDi. Setando para nulo, ele some do JSON!
+                        // LIMPANDO O LIXO: No Desktop nativo, não usamos o Chrome BiDi nem a AX Tree dele.
                         visibleElement.CapturedData.WebDriver_BiDi = null;
+                        visibleElement.CapturedData.AX_Tree = new EngineNode<AxTreeElementData> { ElementData = new AxTreeElementData() };
 
                         context.VisibleElements.Add(visibleElement);
                     }
