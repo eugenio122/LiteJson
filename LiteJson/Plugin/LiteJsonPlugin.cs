@@ -55,7 +55,6 @@ namespace LiteJson.Plugin
             _scenarioSteps = new List<ExtractionPayload>();
             _baseOutputDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LiteJson_Output");
 
-            // O CaptureStartedEvent foi removido pois não vamos mais manipular a RawImage
             _eventBus.Subscribe<ImageCapturedEvent>(OnImageCaptured);
             _eventBus.Subscribe<ImageCaptureCanceledEvent>(OnImageCaptureCanceled);
 
@@ -84,6 +83,42 @@ namespace LiteJson.Plugin
             _trackerWorkerThread.Start();
         }
 
+        // =========================================================================
+        // HELPER: Anti-Flood da Digitação no C#
+        // Garante que o Live Drain não suje a trilha com pedaços de digitação!
+        // =========================================================================
+        private void AppendInteractionsWithMerge(ExtractionPayload step, List<InteractionBreadcrumb> newInteractions)
+        {
+            if (newInteractions == null || newInteractions.Count == 0) return;
+
+            foreach (var newInteraction in newInteractions)
+            {
+                if (newInteraction.InteractionType == "input")
+                {
+                    var lastItem = step.InteractionTrail.LastOrDefault();
+                    if (lastItem != null && lastItem.InteractionType == "input" &&
+                        lastItem.ElementId == newInteraction.ElementId &&
+                        lastItem.TagName == newInteraction.TagName)
+                    {
+                        // Se o usuário ainda está digitando no mesmo campo, APENAS ATUALIZA o último registro!
+                        lastItem.Timestamp = newInteraction.Timestamp;
+                        lastItem.Value = newInteraction.Value;
+
+                        if (lastItem.WebDriver_BiDi != null && lastItem.WebDriver_BiDi.ElementData != null &&
+                            newInteraction.WebDriver_BiDi != null && newInteraction.WebDriver_BiDi.ElementData != null)
+                        {
+                            lastItem.WebDriver_BiDi.ElementData.Value = newInteraction.WebDriver_BiDi.ElementData.Value;
+                        }
+
+                        continue; // Pula a adição de uma nova linha
+                    }
+                }
+
+                step.InteractionTrail.Add(newInteraction);
+            }
+        }
+        // =========================================================================
+
         private void TrackerWorkerLoop(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
@@ -103,7 +138,9 @@ namespace LiteJson.Plugin
                                 var currentStep = _scenarioSteps.LastOrDefault(s => s.IsActive);
                                 if (currentStep != null)
                                 {
-                                    currentStep.InteractionTrail.AddRange(liveTrail);
+                                    // Chama o novo Helper que protege contra o Flood!
+                                    AppendInteractionsWithMerge(currentStep, liveTrail);
+
                                     _hydrationQueue.Enqueue((currentStep, GetForegroundWindow()));
                                     SaveJsonToDisk(GetCurrentScenarioDirectory());
                                 }
@@ -185,7 +222,7 @@ namespace LiteJson.Plugin
                 var lastActiveStep = _scenarioSteps.LastOrDefault(s => s.IsActive);
                 if (lastActiveStep != null && finalFlush != null && finalFlush.Count > 0)
                 {
-                    lastActiveStep.InteractionTrail.AddRange(finalFlush);
+                    AppendInteractionsWithMerge(lastActiveStep, finalFlush);
                     _hydrationQueue.Enqueue((lastActiveStep, hwnd));
                 }
 
@@ -213,9 +250,6 @@ namespace LiteJson.Plugin
         private void OnImageCaptured(ImageCapturedEvent e)
         {
             var config = LiteJsonConfig.Load();
-
-            // O Evento OnImageCaptured agora é apenas um Gatilho (Trigger).
-            // Ignoramos a imagem (e.CapturedImage) totalmente.
             if (!config.IsEnabled || !_isRecording) return;
 
             var pendingStep = _scenarioSteps.LastOrDefault(s => s.PendingConfirmation);
@@ -244,7 +278,7 @@ namespace LiteJson.Plugin
                 var lastActiveStep = _scenarioSteps.LastOrDefault(s => s.IsActive);
                 if (lastActiveStep != null && finalFlush != null && finalFlush.Count > 0)
                 {
-                    lastActiveStep.InteractionTrail.AddRange(finalFlush);
+                    AppendInteractionsWithMerge(lastActiveStep, finalFlush);
                     _hydrationQueue.Enqueue((lastActiveStep, fallbackHwnd));
                 }
 

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.RegularExpressions;
 using Interop.UIAutomationClient;
 using LiteJson.Diagnostics;
 using LiteJson.Models;
@@ -7,7 +8,6 @@ namespace LiteJson.Adapters
 {
     public class UIAAdapter
     {
-        // Renomeado e focado exclusivamente em extrair a gaveta UIA
         public EngineNode<UiaElementData> ExtractUiaNode(IUIAutomationElement element)
         {
             var uiaNode = new EngineNode<UiaElementData> { ElementData = new UiaElementData() };
@@ -22,9 +22,15 @@ namespace LiteJson.Adapters
             try
             {
                 string autoId = element.CurrentAutomationId ?? string.Empty;
-                string name = element.CurrentName ?? string.Empty;
+                string rawName = element.CurrentName ?? string.Empty;
                 string role = element.CurrentLocalizedControlType ?? "unknown";
-                string help = element.CurrentHelpText ?? string.Empty;
+                string rawHelp = element.CurrentHelpText ?? string.Empty;
+
+                // LGPD Compliance: Passando o Name e o HelpText para formar o "Full Context" 
+                // e blindar qualquer dado sensível!
+                string fullContext = rawName + " " + rawHelp;
+                string name = SanitizePII(rawName, autoId, fullContext);
+                string help = SanitizePII(rawHelp, autoId, fullContext);
 
                 var rect = element.CurrentBoundingRectangle;
                 string bounds = $"{rect.left},{rect.top},{rect.right - rect.left},{rect.bottom - rect.top}";
@@ -85,7 +91,9 @@ namespace LiteJson.Adapters
             try
             {
                 var automation = new CUIAutomation();
-                context.PageTitle = rootElement.CurrentName ?? string.Empty;
+
+                context.PageTitle = SanitizePII(rootElement.CurrentName ?? string.Empty, "", "");
+
                 LiteLogger.Debug($"[UIAAdapter.ExtractObservedContext] Iniciando varredura nativa UIA. Título raiz: '{context.PageTitle}'.");
 
                 int[] controlTypes = new[]
@@ -144,7 +152,6 @@ namespace LiteJson.Adapters
 
                         visibleElement.CapturedData.UIA = uiaNode;
 
-                        // LIMPANDO O LIXO: No Desktop nativo, não usamos o Chrome BiDi nem a AX Tree dele.
                         visibleElement.CapturedData.WebDriver_BiDi = null;
                         visibleElement.CapturedData.AX_Tree = new EngineNode<AxTreeElementData> { ElementData = new AxTreeElementData() };
 
@@ -179,6 +186,52 @@ namespace LiteJson.Adapters
                 case 50005: return "link";
                 default: return "unknown";
             }
+        }
+
+        private string SanitizePII(string text, string autoId, string nameContext)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+
+            string lowerId = (autoId ?? "").ToLower();
+            string lowerCtx = (nameContext ?? "").ToLower();
+
+            if (lowerId.Contains("senha") || lowerId.Contains("password") ||
+                lowerCtx.Contains("senha") || lowerCtx.Contains("password") ||
+                lowerCtx.Contains("pwd"))
+            {
+                return "[SENHA OCULTA]";
+            }
+
+            // Expandido para pegar 'e-mail' também, cobrindo o placeholder do seu site
+            string[] keys = { "cpf", "cnpj", "documento", "email", "e-mail", "telefone", "celular", "cartao", "creditcard", "cep", "endereco", "address" };
+            foreach (var key in keys)
+            {
+                if (lowerId.Contains(key) || lowerCtx.Contains(key))
+                {
+                    return "[DADO SENSÍVEL OCULTO]";
+                }
+            }
+
+            if (lowerId.Contains("nome") || lowerId.Contains("name") ||
+                lowerCtx.Contains("nome") || lowerCtx.Contains("name"))
+            {
+                if (text.Trim().Contains(" ")) return "[NOME COMPLETO OCULTO]";
+            }
+
+            string masked = text;
+            masked = Regex.Replace(masked, @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[EMAIL OCULTO]");
+            masked = Regex.Replace(masked, @"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", "[CPF OCULTO]");
+            masked = Regex.Replace(masked, @"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", "[CNPJ OCULTO]");
+            masked = Regex.Replace(masked, @"\b(?:\d[ -]*?){13,16}\b", "[CARTAO OCULTO]");
+
+            masked = Regex.Replace(masked, @"(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}", m =>
+            {
+                string digits = Regex.Replace(m.Value, @"\D", "");
+                if (digits.Length >= 8 && digits.Length <= 13) return "[TELEFONE OCULTO]";
+                return m.Value;
+            });
+
+            return masked;
         }
     }
 }

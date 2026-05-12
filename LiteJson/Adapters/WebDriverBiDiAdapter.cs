@@ -50,17 +50,74 @@ namespace LiteJson.Adapters
 
         private const string JsLocatorHelpers = @"
             function cleanStr(s) { return s ? String(s).replace(/[\r\n\t\f\v ]+/g, ' ').trim() : ''; }
-            function checkUnique(selector, isXpath) { try { if (isXpath) { return document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotLength === 1; } return document.querySelectorAll(selector).length === 1; } catch(e) { return false; } }
-            function getLoc(value, score, isXpath) { if (!value) return null; var unique = checkUnique(value, isXpath); return { Value: value, Confidence: unique ? score : (score * -1) }; }
+            function getLoc(value, score) { return value ? { Value: value, Confidence: score } : null; }
             function getCustomAttr(node) { var attrs = ['data-testid', 'data-cy', 'data-test']; for(var i=0; i<attrs.length; i++) { var val = node.getAttribute(attrs[i]); if (val) return ""["" + attrs[i] + ""='"" + cleanStr(val) + ""']""; } return null; }
             function getXPathAbs(node) { if (!node || node.nodeType !== 1) return ''; if (node.tagName.toLowerCase() === 'html') return '/html'; if (node === document.body) return '/html/body'; var ix = 0; var siblings = node.parentNode ? node.parentNode.childNodes : []; for (var i = 0; i < siblings.length; i++) { var sibling = siblings[i]; if (sibling === node) return getXPathAbs(node.parentNode) + '/' + node.tagName.toLowerCase() + '[' + (ix + 1) + ']'; if (sibling.nodeType === 1 && sibling.tagName === node.tagName) ix++; } return ''; }
             function getXPathRel(node) { if (node.id) return ""//"" + node.tagName.toLowerCase() + ""[@id='"" + node.id + ""']""; return getXPathAbs(node); }
             function getCssSelector(node) { if (node.id) return '#' + node.id; if (node.className && typeof node.className === 'string') { var classes = node.className.trim().split(/\s+/).join('.'); if (classes) return node.tagName.toLowerCase() + '.' + classes; } return node.tagName.toLowerCase(); }
+            
+            function maskPII(text, el) {
+                if (!text) return text;
+                var str = String(text);
+                
+                if (el && el.nodeType === 1) {
+                    var type = (el.type || '').toLowerCase();
+                    var id = (el.id || '').toLowerCase();
+                    var name = (el.name || '').toLowerCase();
+                    var ph = (el.placeholder || '').toLowerCase();
+                    var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                    var tag = el.tagName.toLowerCase();
+                    
+                    var fullCtx = type + ' ' + id + ' ' + name + ' ' + ph + ' ' + aria;
+
+                    if (fullCtx.includes('senha') || fullCtx.includes('password') || fullCtx.includes('pwd')) {
+                        return '[SENHA OCULTA]';
+                    }
+                    
+                    var keys = ['cpf', 'cnpj', 'documento', 'email', 'e-mail', 'telefone', 'celular', 'cartao', 'creditcard', 'cep', 'endereco', 'address'];
+                    for(var i=0; i<keys.length; i++) {
+                        if (fullCtx.includes(keys[i])) {
+                            return '[DADO SENSÍVEL OCULTO]';
+                        }
+                    }
+                    
+                    if (tag === 'input' && (fullCtx.includes('nome') || fullCtx.includes('name'))) {
+                         if (str.trim().indexOf(' ') > 0) return '[NOME COMPLETO OCULTO]'; 
+                    }
+                }
+                
+                var masked = str;
+                masked = masked.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL OCULTO]'); 
+                masked = masked.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[CPF OCULTO]'); 
+                masked = masked.replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, '[CNPJ OCULTO]'); 
+                masked = masked.replace(/\b(?:\d[ -]*?){13,16}\b/g, '[CARTAO OCULTO]'); 
+                
+                masked = masked.replace(/(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/g, function(m) {
+                    if (m.replace(/\D/g, '').length >= 8 && m.replace(/\D/g, '').length <= 13) return '[TELEFONE OCULTO]';
+                    return m;
+                });
+
+                return masked;
+            }
+
             function getElementText(el) {
-                if (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'textarea') { return cleanStr(el.value || el.placeholder || ''); }
-                if (el.tagName.toLowerCase() === 'select') { return cleanStr(el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : ''); }
-                var text = el.innerText || el.textContent || '';
-                return cleanStr(text).substring(0, 100); 
+                var rawText = '';
+                if (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'textarea') { 
+                    rawText = el.value || el.placeholder || ''; 
+                } else if (el.tagName.toLowerCase() === 'select') { 
+                    rawText = el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : ''; 
+                } else {
+                    rawText = el.innerText || el.textContent || '';
+                }
+                
+                var cleaned = cleanStr(rawText);
+                
+                // MÁGICA: Limpeza cirúrgica de ícones e lixos visuais das extremidades
+                // Remove coisas como '! entrar' -> 'entrar' ou 'voltar <' -> 'voltar'
+                cleaned = cleaned.replace(/^[^a-zA-Z0-9À-ÿ]+\s+/g, '');
+                cleaned = cleaned.replace(/\s+[^a-zA-Z0-9À-ÿ]+$/g, '');
+                
+                return maskPII(cleaned.substring(0, 100), el); 
             }
         ";
 
@@ -119,7 +176,6 @@ namespace LiteJson.Adapters
                 await ws.ConnectAsync(new Uri(wsUrl), cts.Token).ConfigureAwait(false);
 
                 var jsCmd = new { id = 1, method = "Runtime.evaluate", @params = new { expression = jsCode, returnByValue = true } };
-                // Passando o ExpectedId = 1 para filtrar eventos
                 string rawResult = await SendWsCommandAsync(ws, 1, jsCmd, cts.Token);
 
                 if (string.IsNullOrEmpty(rawResult)) return null;
@@ -167,9 +223,6 @@ namespace LiteJson.Adapters
             return results;
         }
 
-        // =========================================================================================
-        // O CÃO DE GUARDA DO WEBSOCKET: Filtra eventos aleatórios e só retorna a resposta certa
-        // =========================================================================================
         private async Task<string> SendWsCommandAsync(ClientWebSocket ws, int expectedId, object command, CancellationToken token)
         {
             string cmdJson = JsonSerializer.Serialize(command);
@@ -190,18 +243,13 @@ namespace LiteJson.Adapters
 
                 try
                 {
-                    // Lê o JSON da mensagem que acabou de chegar
                     using var doc = JsonDocument.Parse(response);
-                    // Se a mensagem possuir o "id" e ele for igual ao expectedId, é a nossa resposta!
                     if (doc.RootElement.TryGetProperty("id", out var idProp) && idProp.GetInt32() == expectedId)
                     {
                         return response;
                     }
                 }
-                catch
-                {
-                    // Se não for um JSON válido ou for um evento (ex: Target.attached), ignora e continua ouvindo
-                }
+                catch { }
             }
             return string.Empty;
         }
@@ -213,14 +261,26 @@ namespace LiteJson.Adapters
                 var el = document.elementFromPoint(x, y);
                 if (!el) return null;
                 " + JsLocatorHelpers + @"
+
+                var textContent = getElementText(el);
+                var textSelector = textContent && textContent.indexOf('[') === -1 ? ""//*[normalize-space(text())='"" + textContent + ""']"" : null;
+
                 return {
                     selectorSet: {
-                        customAttribute: getLoc(getCustomAttr(el), 100, false),
-                        id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90, false),
-                        xpathAbsolute: getLoc(getXPathAbs(el), 10, true)
+                        customAttribute: getLoc(getCustomAttr(el), 100),
+                        id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90),
+                        ariaLabel: getLoc(el.hasAttribute('aria-label') ? ""[aria-label='"" + cleanStr(el.getAttribute('aria-label')) + ""']"" : null, 85),
+                        name: getLoc(el.hasAttribute('name') ? ""[name='"" + cleanStr(el.getAttribute('name')) + ""']"" : null, 85),
+                        placeholder: getLoc(el.hasAttribute('placeholder') ? ""[placeholder='"" + cleanStr(el.getAttribute('placeholder')) + ""']"" : null, 85),
+                        alt: getLoc(el.hasAttribute('alt') ? ""[alt='"" + cleanStr(el.getAttribute('alt')) + ""']"" : null, 85),
+                        text: getLoc(textSelector, 75),
+                        title: getLoc(el.hasAttribute('title') ? ""[title='"" + cleanStr(el.getAttribute('title')) + ""']"" : null, 70),
+                        css: getLoc(getCssSelector(el), 60),
+                        xpathRelative: getLoc(getXPathRel(el), 40),
+                        xpathAbsolute: getLoc(getXPathAbs(el), 10)
                     },
                     url: window.location.href,
-                    value: getElementText(el),
+                    value: textContent,
                     frameworkId: 'Web_HTML'
                 };
             })(" + x + ", " + y + ");";
@@ -277,7 +337,10 @@ namespace LiteJson.Adapters
                     var dynState = '';
                     if (el.hasAttribute('aria-expanded')) dynState += '[Expanded:' + el.getAttribute('aria-expanded') + '] ';
                     if (el.hasAttribute('aria-invalid')) dynState += '[Invalid:' + el.getAttribute('aria-invalid') + '] ';
-                    var finalValue = cleanStr(dynState + getElementText(el));
+                    
+                    var textContent = getElementText(el);
+                    var finalValue = dynState + textContent;
+                    var textSelector = textContent && textContent.indexOf('[') === -1 ? ""//*[normalize-space(text())='"" + textContent + ""']"" : null;
 
                     return {
                         LiteId: id,
@@ -292,14 +355,17 @@ namespace LiteJson.Adapters
                         Children: [],
                         BidiData: {
                             selectorSet: {
-                                customAttribute: getLoc(getCustomAttr(el), 100, false),
-                                id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90, false),
-                                ariaLabel: getLoc(el.hasAttribute('aria-label') ? ""[aria-label='"" + cleanStr(el.getAttribute('aria-label')) + ""']"" : null, 85, false),
-                                name: getLoc(el.hasAttribute('name') ? ""[name='"" + cleanStr(el.getAttribute('name')) + ""']"" : null, 85, false),
-                                placeholder: getLoc(el.hasAttribute('placeholder') ? ""[placeholder='"" + cleanStr(el.getAttribute('placeholder')) + ""']"" : null, 85, false),
-                                alt: getLoc(el.hasAttribute('alt') ? ""[alt='"" + cleanStr(el.getAttribute('alt')) + ""']"" : null, 85, false),
-                                title: getLoc(el.hasAttribute('title') ? ""[title='"" + cleanStr(el.getAttribute('title')) + ""']"" : null, 70, false),
-                                xpathAbsolute: getLoc(getXPathAbs(el), 10, true)
+                                customAttribute: getLoc(getCustomAttr(el), 100),
+                                id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90),
+                                ariaLabel: getLoc(el.hasAttribute('aria-label') ? ""[aria-label='"" + cleanStr(el.getAttribute('aria-label')) + ""']"" : null, 85),
+                                name: getLoc(el.hasAttribute('name') ? ""[name='"" + cleanStr(el.getAttribute('name')) + ""']"" : null, 85),
+                                placeholder: getLoc(el.hasAttribute('placeholder') ? ""[placeholder='"" + cleanStr(el.getAttribute('placeholder')) + ""']"" : null, 85),
+                                alt: getLoc(el.hasAttribute('alt') ? ""[alt='"" + cleanStr(el.getAttribute('alt')) + ""']"" : null, 85),
+                                text: getLoc(textSelector, 75),
+                                title: getLoc(el.hasAttribute('title') ? ""[title='"" + cleanStr(el.getAttribute('title')) + ""']"" : null, 70),
+                                css: getLoc(getCssSelector(el), 60),
+                                xpathRelative: getLoc(getXPathRel(el), 40),
+                                xpathAbsolute: getLoc(getXPathAbs(el), 10)
                             },
                             url: window.location.href,
                             value: finalValue,
@@ -456,7 +522,6 @@ namespace LiteJson.Adapters
                 string wsUrl = await GetActiveWebSocketUrlAsync();
                 if (string.IsNullOrEmpty(wsUrl)) return null;
 
-                // Aumentado para 10s para garantir que não cancele árvores de sites pesados
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 using var ws = new ClientWebSocket();
                 await ws.ConnectAsync(new Uri(wsUrl), cts.Token).ConfigureAwait(false);
@@ -595,19 +660,16 @@ namespace LiteJson.Adapters
             var p1 = new[] { set.AriaLabel, set.Name, set.Placeholder, set.Alt };
             var p2 = new[] { set.Text, set.Title, set.Css };
 
-            bool amb = false;
             int max = 0;
 
-            foreach (var l in p0) if (l != null) { if (l.Confidence < 0) amb = true; if (Math.Abs(l.Confidence) > max) max = Math.Abs(l.Confidence); }
-            foreach (var l in p1) if (l != null) { if (l.Confidence < 0) amb = true; if (Math.Abs(l.Confidence) > max) max = Math.Abs(l.Confidence); }
-            foreach (var l in p2) if (l != null) { if (l.Confidence < 0) amb = true; if (Math.Abs(l.Confidence) > max) max = Math.Abs(l.Confidence); }
+            foreach (var l in p0) if (l != null && l.Confidence > max) max = l.Confidence;
+            foreach (var l in p1) if (l != null && l.Confidence > max) max = l.Confidence;
+            foreach (var l in p2) if (l != null && l.Confidence > max) max = l.Confidence;
 
             if (max == 100) node.QualityFlags.Add("LOCATOR_P0_GOLDEN");
             else if (max >= 80 && max <= 99) node.QualityFlags.Add("LOCATOR_P1_SEMANTIC");
             else if (max >= 70 && max <= 79) node.QualityFlags.Add("LOCATOR_P2_VISUAL");
             else if (max <= 60 && max > 0) node.QualityFlags.Add("WARNING_BRITTLE_LOCATOR");
-
-            if (amb) node.QualityFlags.Add("WARNING_AMBIGUOUS_LOCATOR");
         }
 
         public void HydrateTrailAxTree(List<InteractionBreadcrumb> trail)
@@ -691,39 +753,6 @@ namespace LiteJson.Adapters
             }
         }
 
-        private async Task<string> SendSingleEvaluationAsync(string jsCode)
-        {
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                string response = await httpClient.GetStringAsync($"http://127.0.0.1:{DebugPort}/json").ConfigureAwait(false);
-                using var jsonDoc = JsonDocument.Parse(response);
-                string wsUrl = string.Empty;
-                foreach (var item in jsonDoc.RootElement.EnumerateArray())
-                {
-                    if (item.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "page")
-                    {
-                        wsUrl = item.TryGetProperty("webSocketDebuggerUrl", out var wsUrlProp) ? wsUrlProp.GetString() ?? "" : "";
-                        break;
-                    }
-                }
-                if (string.IsNullOrEmpty(wsUrl)) return null;
-
-                using var ws = new ClientWebSocket();
-                await ws.ConnectAsync(new Uri(wsUrl), cts.Token).ConfigureAwait(false);
-
-                var jsCmd = new { id = 1, method = "Runtime.evaluate", @params = new { expression = jsCode, returnByValue = true } };
-
-                var jsRawResult = await SendWsCommandAsync(ws, 1, jsCmd, cts.Token);
-                if (string.IsNullOrEmpty(jsRawResult)) return null;
-
-                var parsedJs = JsonDocument.Parse(jsRawResult);
-                return parsedJs.RootElement.GetProperty("result").GetProperty("result").GetProperty("value").GetRawText();
-            }
-            catch { return null; }
-        }
-
         public void EnsureClickTrackerInjected(IntPtr hwnd)
         {
             string jsCode = @"(function() {
@@ -733,26 +762,28 @@ namespace LiteJson.Adapters
 
                 " + JsLocatorHelpers + @"
 
-                function buildBidiData(el) {
+                function buildBidiData(el, valOverride) {
                     var textContent = getElementText(el);
-                    var textSelector = textContent ? ""//*[text()='"" + textContent + ""']"" : null;
+                    // Aplica XPath mais blindado para ignorar lixo dentro de HTML complexo
+                    var textSelector = textContent && textContent.indexOf('[') === -1 ? ""//*[normalize-space(text())='"" + textContent + ""']"" : null;
+                    
                     return {
                         elementData: {
                             selectorSet: {
-                                customAttribute: getLoc(getCustomAttr(el), 100, false),
-                                id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90, false),
-                                ariaLabel: getLoc(el.hasAttribute('aria-label') ? ""[aria-label='"" + cleanStr(el.getAttribute('aria-label')) + ""']"" : null, 85, false),
-                                name: getLoc(el.hasAttribute('name') ? ""[name='"" + cleanStr(el.getAttribute('name')) + ""']"" : null, 85, false),
-                                placeholder: getLoc(el.hasAttribute('placeholder') ? ""[placeholder='"" + cleanStr(el.getAttribute('placeholder')) + ""']"" : null, 85, false),
-                                alt: getLoc(el.hasAttribute('alt') ? ""[alt='"" + cleanStr(el.getAttribute('alt')) + ""']"" : null, 85, false),
-                                text: getLoc(textSelector, 75, true),
-                                title: getLoc(el.hasAttribute('title') ? ""[title='"" + cleanStr(el.getAttribute('title')) + ""']"" : null, 70, false),
-                                css: getLoc(getCssSelector(el), 60, false),
-                                xpathRelative: getLoc(getXPathRel(el), 40, true),
-                                xpathAbsolute: getLoc(getXPathAbs(el), 10, true)
+                                customAttribute: getLoc(getCustomAttr(el), 100),
+                                id: getLoc(el.id ? '#' + cleanStr(el.id) : null, 90),
+                                ariaLabel: getLoc(el.hasAttribute('aria-label') ? ""[aria-label='"" + cleanStr(el.getAttribute('aria-label')) + ""']"" : null, 85),
+                                name: getLoc(el.hasAttribute('name') ? ""[name='"" + cleanStr(el.getAttribute('name')) + ""']"" : null, 85),
+                                placeholder: getLoc(el.hasAttribute('placeholder') ? ""[placeholder='"" + cleanStr(el.getAttribute('placeholder')) + ""']"" : null, 85),
+                                alt: getLoc(el.hasAttribute('alt') ? ""[alt='"" + cleanStr(el.getAttribute('alt')) + ""']"" : null, 85),
+                                text: getLoc(textSelector, 75),
+                                title: getLoc(el.hasAttribute('title') ? ""[title='"" + cleanStr(el.getAttribute('title')) + ""']"" : null, 70),
+                                css: getLoc(getCssSelector(el), 60),
+                                xpathRelative: getLoc(getXPathRel(el), 40),
+                                xpathAbsolute: getLoc(getXPathAbs(el), 10)
                             },
                             url: window.location.href,
-                            value: el.value || textContent || '',
+                            value: valOverride !== undefined ? valOverride : (el.value ? maskPII(el.value, el) : (textContent || '')),
                             frameworkId: 'Web_HTML_Passive'
                         },
                         qualityFlags: ['SUCCESS_BIDI_INJECTION']
@@ -815,16 +846,21 @@ namespace LiteJson.Adapters
                     var tag = target.tagName.toLowerCase();
                     if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') return;
 
+                    var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : {left:0, top:0, width:0, height:0};
+                    var maskedVal = maskPII(target.value || '', target);
+                    
                     var trail = window.__liteInteractionTrail;
                     if (trail.length > 0) {
                         var last = trail[trail.length - 1];
                         if (last.InteractionType === 'input' && last.ElementId === (target.id || '') && last.TagName === tag) {
                             last.Timestamp = new Date().toISOString();
+                            last.Value = maskedVal;
+                            if (last.WebDriver_BiDi && last.WebDriver_BiDi.elementData) {
+                                last.WebDriver_BiDi.elementData.value = maskedVal;
+                            }
                             return; 
                         }
                     }
-
-                    var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : {left:0, top:0, width:0, height:0};
                     
                     pushInteraction({
                         InteractionType: 'input',
@@ -834,12 +870,12 @@ namespace LiteJson.Adapters
                         Classes: target.getAttribute('class') || '',
                         InputType: target.type || '',
                         VisibleText: '', 
-                        Value: target.value || '',       
+                        Value: maskedVal,       
                         BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                         ScrollX: Math.round(window.scrollX),
                         ScrollY: Math.round(window.scrollY),
                         UrlPath: window.location.pathname,
-                        WebDriver_BiDi: buildBidiData(target)
+                        WebDriver_BiDi: buildBidiData(target, maskedVal)
                     });
                 }, true);
 
@@ -852,6 +888,15 @@ namespace LiteJson.Adapters
 
                     var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : {left:0, top:0, width:0, height:0};
                     
+                    var text = '';
+                    var val = '';
+                    
+                    if (tag === 'button' || tag === 'a') {
+                        text = getElementText(target);
+                    } else if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                        val = maskPII(target.value || '', target);
+                    }
+
                     var trail = window.__liteInteractionTrail;
                     if (trail.length > 0) {
                         var last = trail[trail.length - 1];
@@ -859,9 +904,6 @@ namespace LiteJson.Adapters
                             return;
                         }
                     }
-
-                    var text = '';
-                    if (tag === 'button' || tag === 'a') text = getElementText(target);
 
                     pushInteraction({
                         InteractionType: 'focus',
@@ -871,12 +913,12 @@ namespace LiteJson.Adapters
                         Classes: target.getAttribute('class') || '',
                         InputType: target.type || '',
                         VisibleText: text, 
-                        Value: '',         
+                        Value: val,         
                         BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                         ScrollX: Math.round(window.scrollX),
                         ScrollY: Math.round(window.scrollY),
                         UrlPath: window.location.pathname,
-                        WebDriver_BiDi: buildBidiData(target)
+                        WebDriver_BiDi: buildBidiData(target, val)
                     });
                 }, true); 
 
