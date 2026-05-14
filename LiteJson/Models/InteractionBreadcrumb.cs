@@ -19,7 +19,12 @@ namespace LiteJson.Models
         public string BoundingBox { get; set; } // Formato "Left,Top,Width,Height"
         public int ScrollX { get; set; }
         public int ScrollY { get; set; }
-        public string UrlPath { get; set; }
+
+        /// <summary>
+        /// A URL completa da página no momento da interação (incluindo parâmetros de query).
+        /// Fundamental para reconstrução de estados e comparadores do LiteAutomation.
+        /// </summary>
+        public string Url { get; set; }
 
         // ====================================================================
         // AS TRÊS GAVETAS DA ARQUITETURA PROFUNDA (A TRINDADE SIMÉTRICA)

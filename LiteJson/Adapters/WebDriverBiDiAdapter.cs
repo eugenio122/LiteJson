@@ -764,7 +764,6 @@ namespace LiteJson.Adapters
 
                 function buildBidiData(el, valOverride) {
                     var textContent = getElementText(el);
-                    // Aplica XPath mais blindado para ignorar lixo dentro de HTML complexo
                     var textSelector = textContent && textContent.indexOf('[') === -1 ? ""//*[normalize-space(text())='"" + textContent + ""']"" : null;
                     
                     return {
@@ -812,7 +811,7 @@ namespace LiteJson.Adapters
                         BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                         ScrollX: Math.round(window.scrollX),
                         ScrollY: Math.round(window.scrollY),
-                        UrlPath: window.location.pathname,
+                        Url: window.location.href,
                         WebDriver_BiDi: buildBidiData(target)
                     });
                 }, true);
@@ -834,7 +833,7 @@ namespace LiteJson.Adapters
                             BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                             ScrollX: Math.round(window.scrollX),
                             ScrollY: Math.round(window.scrollY),
-                            UrlPath: window.location.pathname,
+                            Url: window.location.href,
                             WebDriver_BiDi: buildBidiData(target)
                         });
                     }
@@ -874,7 +873,7 @@ namespace LiteJson.Adapters
                         BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                         ScrollX: Math.round(window.scrollX),
                         ScrollY: Math.round(window.scrollY),
-                        UrlPath: window.location.pathname,
+                        Url: window.location.href,
                         WebDriver_BiDi: buildBidiData(target, maskedVal)
                     });
                 }, true);
@@ -917,7 +916,7 @@ namespace LiteJson.Adapters
                         BoundingBox: Math.round(rect.left) + ',' + Math.round(rect.top) + ',' + Math.round(rect.width) + ',' + Math.round(rect.height),
                         ScrollX: Math.round(window.scrollX),
                         ScrollY: Math.round(window.scrollY),
-                        UrlPath: window.location.pathname,
+                        Url: window.location.href,
                         WebDriver_BiDi: buildBidiData(target, val)
                     });
                 }, true); 
