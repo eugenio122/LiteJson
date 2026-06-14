@@ -14,6 +14,13 @@ namespace LiteJson.Models
     /// </summary>
     public class ObservedContext
     {
+        /// <summary>
+        /// Chave estrangeira que conecta esta fotografia ao seu <see cref="ExtractionPayload"/>.
+        /// Sempre igual ao <c>StepId</c> do payload que a contém.
+        /// Injetado pelo orquestrador no momento do print.
+        /// </summary>
+        public string AssociatedStepId { get; set; } = string.Empty;
+
         public string Url { get; set; } = string.Empty;
         public string PageTitle { get; set; } = string.Empty;
 

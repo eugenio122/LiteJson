@@ -35,7 +35,6 @@ namespace LiteJson.Adapters
         public int Width { get; set; }
         public int Height { get; set; }
         public BiDiElementData BidiData { get; set; } = new BiDiElementData();
-        public List<BiDiContextElement> Children { get; set; } = new List<BiDiContextElement>();
     }
 
     public class WebDriverBiDiAdapter
@@ -421,7 +420,12 @@ namespace LiteJson.Adapters
                         elementCount++;
                         node.setAttribute('lite-ax-id', elementCount);
                         var elData = extractNodeData(node, rect, elementCount);
-                        if (childrenData.length > 0) elData.Children = childrenData;
+                        // childrenData (achatados) vão como irmãos no array final, não como filhos.
+                        if (childrenData.length > 0) {
+                            var combined = [elData];
+                            for (var ci = 0; ci < childrenData.length; ci++) combined.push(childrenData[ci]);
+                            return combined;
+                        }
                         return elData;
                     } else {
                         if (childrenData.length > 0) return childrenData;
@@ -468,7 +472,7 @@ namespace LiteJson.Adapters
         {
             var visibleElement = new VisibleElement
             {
-                NodeId = $"web-node-{el.LiteId}",
+                NodeId = Guid.NewGuid().ToString(),
                 ElementType = el.ElementType,
                 IsEnabled = el.IsEnabled,
                 IsFocused = el.IsFocused,
@@ -476,8 +480,7 @@ namespace LiteJson.Adapters
                 CenterX = el.CenterX,
                 CenterY = el.CenterY,
                 Width = el.Width,
-                Height = el.Height,
-                Parent = parent
+                Height = el.Height
             };
 
             var bidiNode = new EngineNode<BiDiElementData> { ElementData = el.BidiData };
@@ -496,14 +499,6 @@ namespace LiteJson.Adapters
 
                 if (semanticData.AccessibleName?.Confidence > 0)
                     visibleElement.CapturedData.AX_Tree.QualityFlags.Add("A11Y_NAME_PRESENT");
-            }
-
-            if (el.Children != null && el.Children.Count > 0)
-            {
-                foreach (var child in el.Children)
-                {
-                    visibleElement.Children.Add(MapBiDiToVisibleElement(child, axTreeDict, visibleElement));
-                }
             }
 
             return visibleElement;
@@ -750,6 +745,155 @@ namespace LiteJson.Adapters
             catch (Exception ex)
             {
                 LiteLogger.Debug($"[HydrateTrailAxTree] Falha ao hidratar AX_Tree via CDP: {ex.Message}");
+            }
+        }
+
+        // =========================================================================
+        // ORÁCULO: Extração do Full DOM como Hash Map de Frequência (Efêmero)
+        // Retorna um único mapa de SELETORES FORMATADOS (BiDi): valores prontos
+        // como seletor CSS/XPath/atributo.
+        //   ex: "[data-testid='x']", "//*[text()='y']", "#id", "button.cls"
+        //
+        // Os valores SEMÂNTICOS localizados (role/accessibleName/helpText do UIA e
+        // AX_Tree) NÃO são contados aqui — eles são localizados pelo SO/navegador
+        // ('botão' vs 'button') e o JS não tem como prever a tradução. Esses são
+        // contados no lado C# (LiteJsonManager.Oracle) a partir da própria Trindade.
+        //
+        // Usa queries direcionadas por atributo em vez de varrer querySelectorAll('*')
+        // com XPath recursivo — evita timeout em e-commerces com milhares de nós.
+        // O processamento pesado acontece no navegador — o C# recebe só os números.
+        // =========================================================================
+        public Dictionary<string, int> ExtractFullDomFrequencyMap()
+        {
+            string jsCode = @"(function() {
+                " + JsLocatorHelpers + @"
+
+                var freqMap = {};
+
+                function bump(value) {
+                    if (!value) return;
+                    var v = String(value).trim();
+                    if (!v || v.length > 500) return;
+                    freqMap[v] = (freqMap[v] || 0) + 1;
+                }
+
+                // --- BLOCO 1: data-testid / data-cy / data-test ---
+                var testAttrs = ['data-testid', 'data-cy', 'data-test'];
+                for (var t = 0; t < testAttrs.length; t++) {
+                    var els = document.querySelectorAll('[' + testAttrs[t] + ']');
+                    for (var i = 0; i < els.length; i++) {
+                        var val = els[i].getAttribute(testAttrs[t]);
+                        if (val) bump(""["" + testAttrs[t] + ""='"" + cleanStr(val) + ""']"");
+                    }
+                }
+
+                // --- BLOCO 2: id ---
+                var idEls = document.querySelectorAll('[id]');
+                for (var i = 0; i < idEls.length; i++) {
+                    if (idEls[i].id) bump('#' + cleanStr(idEls[i].id));
+                }
+
+                // --- BLOCO 3: aria-label ---
+                var ariaEls = document.querySelectorAll('[aria-label]');
+                for (var i = 0; i < ariaEls.length; i++) {
+                    bump(""[aria-label='"" + cleanStr(ariaEls[i].getAttribute('aria-label')) + ""']"");
+                }
+
+                // --- BLOCO 4: name ---
+                var nameEls = document.querySelectorAll('[name]');
+                for (var i = 0; i < nameEls.length; i++) {
+                    bump(""[name='"" + cleanStr(nameEls[i].getAttribute('name')) + ""']"");
+                }
+
+                // --- BLOCO 5: placeholder ---
+                var phEls = document.querySelectorAll('[placeholder]');
+                for (var i = 0; i < phEls.length; i++) {
+                    bump(""[placeholder='"" + cleanStr(phEls[i].getAttribute('placeholder')) + ""']"");
+                }
+
+                // --- BLOCO 6: alt ---
+                var altEls = document.querySelectorAll('[alt]');
+                for (var i = 0; i < altEls.length; i++) {
+                    bump(""[alt='"" + cleanStr(altEls[i].getAttribute('alt')) + ""']"");
+                }
+
+                // --- BLOCO 7: title ---
+                var titleEls = document.querySelectorAll('[title]');
+                for (var i = 0; i < titleEls.length; i++) {
+                    bump(""[title='"" + cleanStr(titleEls[i].getAttribute('title')) + ""']"");
+                }
+
+                // --- BLOCO 8: Texto + CSS + XPath apenas em elementos interativos ---
+                // Limita o cálculo pesado (XPath recursivo) aos elementos relevantes.
+                // IMPORTANTE: deduplicar os nós — um <button role=""button""> casa tanto
+                // com 'button' quanto com '[role=""button""]' no querySelectorAll, e sem
+                // deduplicar o mesmo XPath seria contado 2x, gerando falsa ambiguidade.
+                var interactiveRaw = document.querySelectorAll('input, button, select, textarea, a, [role=""button""], [role=""link""], [role=""checkbox""], [role=""radio""], [role=""option""], [role=""menuitem""], [role=""tab""]');
+                var seen = [];
+                var interactive = [];
+                for (var i = 0; i < interactiveRaw.length; i++) {
+                    var node = interactiveRaw[i];
+                    if (seen.indexOf(node) === -1) {
+                        seen.push(node);
+                        interactive.push(node);
+                    }
+                }
+
+                for (var i = 0; i < interactive.length; i++) {
+                    var el = interactive[i];
+
+                    var text = getElementText(el);
+                    if (text && text.length > 0 && text.indexOf('[') === -1) {
+                        bump(""//*[normalize-space(text())='"" + text + ""']"");
+                    }
+
+                    bump(getCssSelector(el));
+
+                    // getXPathRel cai no getXPathAbs quando o elemento não tem id,
+                    // resultando no MESMO valor. Contar ambos inflaria o XPath e o
+                    // marcaria como falsamente ambíguo. Só contamos o relativo quando
+                    // ele difere do absoluto.
+                    var xpathAbs = getXPathAbs(el);
+                    var xpathRel = getXPathRel(el);
+                    bump(xpathAbs);
+                    if (xpathRel !== xpathAbs) bump(xpathRel);
+                }
+
+                return JSON.stringify(freqMap);
+            })();";
+
+            try
+            {
+                var result = Task.Run(async () =>
+                {
+                    string wsUrl = await GetActiveWebSocketUrlAsync();
+                    if (string.IsNullOrEmpty(wsUrl)) return null;
+
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    using var ws = new ClientWebSocket();
+                    await ws.ConnectAsync(new Uri(wsUrl), cts.Token).ConfigureAwait(false);
+
+                    var jsCmd = new { id = 1, method = "Runtime.evaluate", @params = new { expression = jsCode, returnByValue = true } };
+                    string rawResult = await SendWsCommandAsync(ws, 1, jsCmd, cts.Token);
+
+                    if (string.IsNullOrEmpty(rawResult)) return null;
+
+                    var parsedJs = JsonDocument.Parse(rawResult);
+                    var resultNode = parsedJs.RootElement.GetProperty("result").GetProperty("result");
+                    if (resultNode.TryGetProperty("value", out var valueNode))
+                        return valueNode.ValueKind == JsonValueKind.String ? valueNode.GetString() : valueNode.GetRawText();
+
+                    return null;
+                }).GetAwaiter().GetResult();
+
+                if (string.IsNullOrEmpty(result) || result == "null") return new Dictionary<string, int>();
+
+                return JsonSerializer.Deserialize<Dictionary<string, int>>(result) ?? new Dictionary<string, int>();
+            }
+            catch (Exception ex)
+            {
+                LiteLogger.Error("[ExtractFullDomFrequencyMap] Falha ao extrair o Full DOM.", ex);
+                return new Dictionary<string, int>();
             }
         }
 

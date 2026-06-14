@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.Json.Serialization;
+﻿using LiteJson.Models;
 
 namespace LiteJson.Models
 {
@@ -11,18 +8,18 @@ namespace LiteJson.Models
 
     /// <summary>
     /// Representa um único elemento extraído durante a varredura do Snapshot.
-    /// Reutiliza a nossa gaveta simétrica "CapturedData" para garantir o mesmo padrão dos MicroSteps.
+    /// Reutiliza a gaveta simétrica "CapturedData" para garantir o mesmo padrão dos MicroSteps.
     /// </summary>
     public class VisibleElement
     {
         /// <summary>
-        /// ID único de rastreabilidade deste nó no snapshot (Ex: "web-node-42").
+        /// ID único de rastreabilidade deste nó no snapshot (GUID).
         /// Vital para relatórios de BDD, logs de execução e renderização visual.
         /// </summary>
         public string NodeId { get; set; } = string.Empty;
 
         /// <summary>
-        /// Classificação semântica do elemento. 
+        /// Classificação semântica do elemento.
         /// Ex: "input", "button", "select", "checkbox", "text" (para mensagens de erro/sucesso).
         /// </summary>
         public string ElementType { get; set; } = string.Empty;
@@ -44,25 +41,15 @@ namespace LiteJson.Models
         public int Width { get; set; }
         public int Height { get; set; }
 
-
         /// <summary>
         /// A gaveta simétrica idêntica à usada nos MicroSteps (com UIA, AX_Tree e BiDi).
         /// </summary>
         public CapturedData CapturedData { get; set; } = new CapturedData();
 
         /// <summary>
-        /// O "Ninho": Mapeia a hierarquia real do DOM. Permite o Event Bubbling Reverso no LiteAutomation.
-        /// </summary>
-        public List<VisibleElement> Children { get; set; } = new List<VisibleElement>();
-
-        /// <summary>
-        /// Para marcar o dono da intenção
+        /// Marca o "dono da intenção" — elemento com seletor forte o suficiente
+        /// para ser usado diretamente em automação (ex: tem aria-label, data-testid, ou é tag interativa).
         /// </summary>
         public bool IsSemanticAnchor { get; set; }
-
-        /// <summary>
-        /// para navegação interna sem quebrar a serialização JSON (evita loops infinitos)
-        /// </summary>
-        [JsonIgnore] public VisibleElement Parent { get; set; }
     }
 }

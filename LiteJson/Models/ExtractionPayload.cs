@@ -29,14 +29,15 @@ namespace LiteJson.Models
 
         public string TriggerType { get; set; } = string.Empty;
 
-        // NOVO: A trilha de tudo que o usuário fez desde o último print
+        // A trilha de tudo que o usuário fez desde o último print
         public List<InteractionBreadcrumb> InteractionTrail { get; set; } = new List<InteractionBreadcrumb>();
 
         /// <summary>
-        /// Dados do elemento central (caso o usuário tenha focado em algo antes de printar).
-        /// Pode atuar como um fallback secundário.
+        /// O elemento central do snapshot: o alvo direto da ação do usuário.
+        /// Carrega a gaveta tripla simétrica (UIA + AX_Tree + BiDi) e o
+        /// <c>AssociatedStepId</c> injetado pelo orquestrador no momento do print.
         /// </summary>
-        public CapturedData CapturedData { get; set; } = new CapturedData();
+        public TargetElementData TargetElementData { get; set; } = new TargetElementData();
 
         /// <summary>
         /// O coração da arquitetura State-Driven: A fotografia completa de todos os elementos da tela.
